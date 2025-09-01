@@ -1,0 +1,43 @@
+name: Secret Scan on PR with Trivy
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.43.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.43.0_Linux-64bit.deb
+
+      - name: Run secret scan with Trivy
+        id: trivy_scan
+        run: |
+          trivy fs --scanners secret --severity CRITICAL,HIGH --format json --output trivy_report.json .
+
+      - name: Show Trivy report (first 20 lines)
+        run: head -20 trivy_report.json
+
+      - name: Check for secrets and fail if any found
+        run: |
+          secrets_found=$(jq '.Results[].Secrets | length' trivy_report.json | awk '{s+=$1} END {print s}')
+          echo "Secrets found: $secrets_found"
+          if [ "$secrets_found" -gt 0 ]; then
+            echo "Secrets detected! Failing the workflow."
+            exit 1
+          else
+            echo "No secrets found."
+          fi
+        shell: bash
